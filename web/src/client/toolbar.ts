@@ -1,9 +1,14 @@
 // Toolbar (top right on hover; bottom right and always visible on touch devices):
-// on-screen keyboard, files, microphone and fullscreen buttons.
+// on-screen keyboard, touch mode, files, microphone and fullscreen buttons.
 import type { App } from './app';
 import { el } from './app';
+import type { PadCursor } from './pointer';
 
-export function setupToolbar(app: App, onFullscreenChange: () => void) {
+export function setupToolbar(
+	app: App,
+	onFullscreenChange: () => void,
+	pad?: PadCursor
+) {
 	const { tools, kbd } = app;
 	const kbBtn = el<HTMLButtonElement>('kb-btn');
 	const fsBtn = el<HTMLButtonElement>('fs-btn');
@@ -14,9 +19,22 @@ export function setupToolbar(app: App, onFullscreenChange: () => void) {
 		if (ms) hideTimer = setTimeout(() => tools.classList.remove('show'), ms);
 	}
 	// Touch devices keep the toolbar visible; mice reveal it near the top edge.
-	if (matchMedia('(pointer: coarse)').matches) {
+	const touch = matchMedia('(pointer: coarse)').matches;
+	if (touch) {
 		tools.classList.add('touch');
 		show(0);
+		// The soft keyboard shrinks the visual viewport instead of the window, so the
+		// toolbar would sit behind it; keep it above the keyboard.
+		const vv = window.visualViewport;
+		if (vv) {
+			const fix = () => {
+				const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+				tools.style.bottom = 12 + overlap + 'px';
+			};
+			vv.addEventListener('resize', fix);
+			vv.addEventListener('scroll', fix);
+			fix();
+		}
 	} else
 		document.addEventListener('pointermove', (e) => {
 			if (
@@ -29,6 +47,22 @@ export function setupToolbar(app: App, onFullscreenChange: () => void) {
 	// Clicks on the toolbar must not reach the desktop surface underneath.
 	for (const b of tools.querySelectorAll('button'))
 		b.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+	// Touchpad / direct touch. Pad mode moves a cursor relatively and draws it, so
+	// desktop-sized controls stay reachable on a phone screen.
+	const padBtn = document.getElementById('pad-btn') as HTMLButtonElement | null;
+	if (pad && padBtn) {
+		const sync = (on: boolean) => {
+			padBtn.classList.toggle('on', on);
+			padBtn.setAttribute('aria-pressed', String(on));
+			padBtn.title = on
+				? 'Touchpad: drag to move the pointer (tap for direct touch)'
+				: 'Direct touch (tap for touchpad)';
+		};
+		pad.onMode(sync);
+		sync(pad.enabled());
+		padBtn.addEventListener('click', () => pad.setEnabled(!pad.enabled()));
+	}
 
 	kbBtn.addEventListener('click', () => {
 		if (document.activeElement === kbd && kbd.dataset.soft) {

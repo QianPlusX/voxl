@@ -92,9 +92,13 @@ function main() {
 		audio.start();
 		clipboard.flush();
 	};
-	setupPointer(app, onInteract);
+	const pad = setupPointer(app, onInteract);
 	setupKeyboard(app, clipboard, onInteract);
-	setupToolbar(app, video.layout);
+	setupToolbar(app, video.layout, pad);
+	// Pad mode has no real pointer to follow, so it draws one at its own position.
+	pad.onMove((x, y) => cursor.setPos(x, y));
+	pad.onMode((on) => cursor.setVisible(on));
+	cursor.setVisible(pad.enabled());
 	const files = createFiles(app);
 	const mic = createMic(app);
 	const resize = createResize(app);

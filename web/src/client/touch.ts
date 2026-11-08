@@ -1,5 +1,11 @@
 // Touch: tap = click, drag = left-drag, long press = right click, two fingers =
 // scroll (content follows the fingers).
+//
+// A phone shows the desktop scaled down to the screen, so an absolute tap lands on
+// several desktop pixels at best: the address bar, a checkbox or a 20px button is hit
+// or miss. Pad mode (the default on touch devices) moves the pointer relatively like a
+// laptop trackpad — one finger slides the pointer, a tap clicks where it is, a long
+// press right-clicks and two fingers scroll — so small controls stay reachable.
 import { cmd } from '../protocol';
 import type { App } from './app';
 
@@ -11,17 +17,25 @@ const LONG_PRESS = 550;
 const MULTI_TAP_MS = 400;
 const MULTI_TAP_PX = 24;
 
+/** 'pad' moves a cursor relatively, 'direct' taps the desktop under the finger. */
+export type TouchMode = 'pad' | 'direct';
+
 interface Hooks {
 	/** Move the remote pointer to a client (CSS pixel) position. */
 	moveTo(x: number, y: number): void;
+	/** Move the remote pointer by this many client (CSS) pixels, clamped to the surface. */
+	relMove(dx: number, dy: number): void;
+	/** Press and release a button where the pointer already is. */
+	click(button: number): void;
 	queueScroll(dx: number, dy: number): void;
 	deskPerPx(): number;
 }
 
-export function createTouch(app: App, hooks: Hooks) {
+export function createTouch(app: App, hooks: Hooks, mode: () => TouchMode) {
 	const { send } = app;
 	const pts = new Map<number, { x: number; y: number }>();
-	let mode: 'pending' | 'drag' | 'scroll' | 'done' | null = null;
+	const isPad = () => mode() === 'pad';
+	let state: 'pending' | 'drag' | 'move' | 'scroll' | 'done' | null = null;
 	let start = { x: 0, y: 0 };
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let lastMid: [number, number] = [0, 0];
@@ -46,35 +60,46 @@ export function createTouch(app: App, hooks: Hooks) {
 		} catch {}
 		pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 		if (pts.size === 1) {
-			mode = 'pending';
+			state = 'pending';
 			start = { x: e.clientX, y: e.clientY };
 			timer = setTimeout(() => {
-				if (mode !== 'pending') return;
-				hooks.moveTo(start.x, start.y);
-				click(3);
-				mode = 'done';
+				if (state !== 'pending') return;
+				if (!isPad()) hooks.moveTo(start.x, start.y);
+				hooks.click(3);
+				state = 'done';
 				navigator.vibrate?.(10);
 			}, LONG_PRESS);
 		} else if (pts.size === 2) {
 			clearTimeout(timer);
-			if (mode === 'drag') send(cmd.button(1, false));
-			mode = 'scroll';
+			if (state === 'drag') send(cmd.button(1, false));
+			state = 'scroll';
 			lastMid = mid();
 		}
 	}
 	function move(e: PointerEvent) {
 		const p = pts.get(e.pointerId);
 		if (!p) return;
+		// Delta before this event is applied: pad mode moves the pointer by it.
+		const dx = e.clientX - p.x;
+		const dy = e.clientY - p.y;
 		p.x = e.clientX;
 		p.y = e.clientY;
-		if (mode === 'pending' && Math.hypot(p.x - start.x, p.y - start.y) > SLOP) {
+		if (state === 'pending' && Math.hypot(p.x - start.x, p.y - start.y) > SLOP) {
 			clearTimeout(timer);
-			mode = 'drag';
+			if (isPad()) {
+				// A slide is pointer movement, not a drag: pressing the button here would
+				// start selecting text in the desktop on every attempt to aim.
+				state = 'move';
+				hooks.relMove(dx, dy);
+				return;
+			}
+			state = 'drag';
 			hooks.moveTo(start.x, start.y);
 			send(cmd.button(1, true));
 		}
-		if (mode === 'drag') hooks.moveTo(p.x, p.y);
-		else if (mode === 'scroll' && pts.size >= 2) {
+		if (state === 'move') hooks.relMove(dx, dy);
+		else if (state === 'drag') hooks.moveTo(p.x, p.y);
+		else if (state === 'scroll' && pts.size >= 2) {
 			const m = mid(),
 				k = hooks.deskPerPx();
 			hooks.queueScroll((lastMid[0] - m[0]) * k, (lastMid[1] - m[1]) * k);
@@ -83,29 +108,35 @@ export function createTouch(app: App, hooks: Hooks) {
 	}
 	function up(e: PointerEvent) {
 		if (!pts.delete(e.pointerId)) return;
-		if (mode === 'pending') {
+		if (state === 'pending') {
 			clearTimeout(timer);
-			const now = performance.now();
-			const at =
-				now - lastTap.t < MULTI_TAP_MS &&
-				Math.hypot(start.x - lastTap.x, start.y - lastTap.y) < MULTI_TAP_PX
-					? lastTap
-					: start;
-			lastTap = { x: at.x, y: at.y, t: now };
-			hooks.moveTo(at.x, at.y);
-			click(1);
-			mode = 'done';
-		} else if (mode === 'drag') {
+			if (isPad()) {
+				// The pointer is already where the finger left it; two taps in a row still
+				// reach the desktop as a double click.
+				hooks.click(1);
+			} else {
+				const now = performance.now();
+				const at =
+					now - lastTap.t < MULTI_TAP_MS &&
+					Math.hypot(start.x - lastTap.x, start.y - lastTap.y) < MULTI_TAP_PX
+						? lastTap
+						: start;
+				lastTap = { x: at.x, y: at.y, t: now };
+				hooks.moveTo(at.x, at.y);
+				click(1);
+			}
+			state = 'done';
+		} else if (state === 'drag') {
 			send(cmd.button(1, false));
-			mode = 'done';
-		} else if (mode === 'scroll' && pts.size < 2) mode = 'done';
-		if (pts.size === 0) mode = null;
+			state = 'done';
+		} else if (state === 'scroll' && pts.size < 2) state = 'done';
+		if (pts.size === 0) state = null;
 	}
 	function cancel(e: PointerEvent) {
 		clearTimeout(timer);
-		if (mode === 'drag') send(cmd.button(1, false));
+		if (state === 'drag') send(cmd.button(1, false));
 		pts.delete(e.pointerId);
-		if (pts.size === 0) mode = null;
+		if (pts.size === 0) state = null;
 	}
 	return { down, move, up, cancel };
 }

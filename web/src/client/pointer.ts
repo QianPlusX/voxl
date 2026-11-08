@@ -2,11 +2,35 @@
 import { cmd } from '../protocol';
 import type { App } from './app';
 import { createTouch } from './touch';
+import type { TouchMode } from './touch';
 
 /** DOM button -> X button (left, middle, right, back, forward). */
 const BUTTONS = [1, 2, 3, 8, 9];
 
-export function setupPointer(app: App, onInteract: () => void) {
+/** Where the touch pointer is, in client (CSS) pixels, and who wants to draw it. */
+export interface PadCursor {
+	/** The pad mode is on: the desktop follows a relative pointer. */
+	enabled(): boolean;
+	setEnabled(on: boolean): void;
+	/** Called with the surface-relative pointer position whenever it moves. */
+	onMove(fn: (x: number, y: number) => void): void;
+	/** Called when the mode changes, so the on-screen cursor can be shown or hidden. */
+	onMode(fn: (pad: boolean) => void): void;
+}
+
+const PAD_KEY = 'voxl.touchpad';
+
+/** Pad mode is the touch default: an absolute tap can't reach desktop-sized controls
+ * on a phone-sized screen. An explicit choice from the toolbar wins. */
+function initialPad(): boolean {
+	try {
+		const saved = localStorage.getItem(PAD_KEY);
+		if (saved !== null) return saved === '1';
+	} catch {}
+	return matchMedia('(pointer: coarse)').matches;
+}
+
+export function setupPointer(app: App, onInteract: () => void): PadCursor {
 	const { surface, send } = app;
 
 	function toDesk(p: { clientX: number; clientY: number }): [number, number] {
@@ -48,12 +72,45 @@ export function setupPointer(app: App, onInteract: () => void) {
 	}
 	/** Desktop pixels per on-screen pixel. */
 	const deskPerPx = () => app.desk.w / surface.getBoundingClientRect().width;
+	const mode = (): TouchMode => (pad ? 'pad' : 'direct');
 
-	const touch = createTouch(app, {
-		moveTo: (x, y) => move({ clientX: x, clientY: y }, true),
-		queueScroll,
-		deskPerPx,
-	});
+	// Pad mode keeps its own pointer: the browser has no pointer position on a
+	// touchscreen, so there is nothing to read back. It starts in the middle and stays
+	// clamped to the surface, which is also where the on-screen cursor is drawn.
+	let pad = initialPad();
+	let padX = 0,
+		padY = 0,
+		padReady = false;
+	const moveFns: ((x: number, y: number) => void)[] = [];
+	const modeFns: ((pad: boolean) => void)[] = [];
+	function relMove(dx: number, dy: number) {
+		const r = surface.getBoundingClientRect();
+		if (!padReady) {
+			padX = r.width / 2;
+			padY = r.height / 2;
+			padReady = true;
+		}
+		padX = Math.max(0, Math.min(r.width - 1, padX + dx));
+		padY = Math.max(0, Math.min(r.height - 1, padY + dy));
+		move({ clientX: r.left + padX, clientY: r.top + padY }, true);
+		for (const fn of moveFns) fn(padX, padY);
+	}
+	function click(button: number) {
+		send(cmd.button(button, true));
+		send(cmd.button(button, false));
+	}
+
+	const touch = createTouch(
+		app,
+		{
+			moveTo: (x, y) => move({ clientX: x, clientY: y }, true),
+			relMove,
+			click,
+			queueScroll,
+			deskPerPx,
+		},
+		mode
+	);
 
 	surface.addEventListener('pointermove', (e) => {
 		if (e.pointerType === 'touch') touch.move(e);
@@ -98,4 +155,22 @@ export function setupPointer(app: App, onInteract: () => void) {
 		},
 		{ passive: false }
 	);
+
+	return {
+		enabled: () => pad,
+		setEnabled(on: boolean) {
+			if (pad === on) return;
+			pad = on;
+			try {
+				localStorage.setItem(PAD_KEY, on ? '1' : '0');
+			} catch {}
+			for (const fn of modeFns) fn(on);
+		},
+		onMove(fn) {
+			moveFns.push(fn);
+		},
+		onMode(fn) {
+			modeFns.push(fn);
+		},
+	};
 }
