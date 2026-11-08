@@ -533,8 +533,9 @@ fn capture_loop(
         if !had_clients {
             had_clients = true;
             // Our shm copy may be stale: re-grab everything once.
-            cap.grab(cap.full())?;
-            pending = [Some(cap.full()), Some(cap.full())];
+            let all = cap.full();
+            cap.grab(all)?;
+            pending = [Some(all), Some(all)];
             cap.damaged = true;
             full_next = true;
         }

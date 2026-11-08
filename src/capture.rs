@@ -73,6 +73,34 @@ impl Drop for ShmBuf {
     }
 }
 
+/// 帧缓冲。Android 的 proot 里 SysV 共享内存整个不可用（shmget 直接 ENOSYS），
+/// 所以除了 MIT-SHM 还得有一条纯内存的路：抓屏退化成普通的 GetImage，
+/// 每帧多一次从 X server 拷过来的全屏数据，其余逻辑一模一样。
+pub enum Frame {
+    Shm(ShmBuf),
+    Mem(Vec<u8>),
+}
+
+impl Frame {
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Frame::Shm(b) => b.as_slice(),
+            Frame::Mem(v) => v,
+        }
+    }
+
+    fn slice_mut(&mut self) -> &mut [u8] {
+        match self {
+            Frame::Shm(b) => unsafe { std::slice::from_raw_parts_mut(b.ptr, b.len) },
+            Frame::Mem(v) => v,
+        }
+    }
+
+    fn is_shm(&self) -> bool {
+        matches!(self, Frame::Shm(_))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Band {
     pub y0: u32,
@@ -87,7 +115,7 @@ pub struct Capturer {
     resize_pending: bool,
     pub stride: usize,
     seg: u32,
-    buf: ShmBuf,
+    buf: Frame,
     /// Byte offset of pixel data inside `buf` (non-zero for an Xvfb XWD framebuffer).
     offset: usize,
     /// Reading Xvfb's framebuffer in place: no GetImage needed.
@@ -156,21 +184,33 @@ impl Capturer {
                         buf.shmid
                     );
                     stride = fb_stride;
-                    (buf, offset, true)
+                    (Frame::Shm(buf), offset, true)
                 }
                 None => {
                     log::warn!(
                     "Xvfb framebuffer not found (start Xvfb with -shmem); falling back to GetImage"
                 );
-                    let buf = ShmBuf::new(stride * height as usize)?;
-                    conn.shm_attach(seg, buf.shmid as u32, false)
-                        .map_err(|e| e.to_string())?
-                        .check()
-                        .map_err(|e| e.to_string())?;
-                    // Mark for removal now; it stays alive while attached.
-                    unsafe { libc::shmctl(buf.shmid, libc::IPC_RMID, std::ptr::null_mut()) };
-                    log::info!("capturing via MIT-SHM GetImage");
-                    (buf, 0, false)
+                    let len = stride * height as usize;
+                    match ShmBuf::new(len) {
+                        Ok(buf) => {
+                            conn.shm_attach(seg, buf.shmid as u32, false)
+                                .map_err(|e| e.to_string())?
+                                .check()
+                                .map_err(|e| e.to_string())?;
+                            // Mark for removal now; it stays alive while attached.
+                            unsafe {
+                                libc::shmctl(buf.shmid, libc::IPC_RMID, std::ptr::null_mut())
+                            };
+                            log::info!("capturing via MIT-SHM GetImage");
+                            (Frame::Shm(buf), 0, false)
+                        }
+                        // Android 的 proot 没有 SysV 共享内存：照常抓屏，只是每帧
+                        // 都要走一次普通的 GetImage 把像素拷回来。
+                        Err(e) => {
+                            log::warn!("no SysV shared memory ({e}); using plain GetImage");
+                            (Frame::Mem(vec![0u8; len]), 0, false)
+                        }
+                    }
                 }
             };
         let damage = conn.generate_id().map_err(|e| e.to_string())?;
@@ -309,7 +349,8 @@ impl Capturer {
             .reply()
             .map_err(|e| e.to_string())?;
         self.pump()?;
-        self.grab(self.full())?;
+        let full = self.full();
+        self.grab(full)?;
         let (row, h) = (self.width as usize * 4, self.height as usize);
         let mut out = Vec::with_capacity(row * h);
         for line in self.pixels().chunks_exact(self.stride).take(h) {
@@ -342,13 +383,34 @@ impl Capturer {
         &self.buf.as_slice()[self.offset..self.offset + self.stride * self.height as usize]
     }
 
-    /// Grab a full-width band into the shm frame at its natural offset.
-    pub fn grab(&self, band: Band) -> Result<(), String> {
+    /// Grab a full-width band into the frame at its natural offset.
+    pub fn grab(&mut self, band: Band) -> Result<(), String> {
         let h = band.y1 - band.y0;
         if h == 0 || self.direct {
             return Ok(());
         }
         let off = band.y0 as usize * self.stride;
+        if !self.buf.is_shm() {
+            // 纯内存帧：这一条带先由 X server 拷回客户端，再落进帧里。
+            let reply = self
+                .conn
+                .get_image(
+                    ImageFormat::Z_PIXMAP,
+                    self.root,
+                    0,
+                    band.y0 as i16,
+                    self.width as u16,
+                    h as u16,
+                    !0,
+                )
+                .map_err(|e| e.to_string())?
+                .reply()
+                .map_err(|e| e.to_string())?;
+            let len = h as usize * self.stride;
+            let n = len.min(reply.data.len());
+            self.buf.slice_mut()[off..off + n].copy_from_slice(&reply.data[..n]);
+            return Ok(());
+        }
         self.conn
             .shm_get_image(
                 self.root,
