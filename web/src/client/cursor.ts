@@ -8,17 +8,19 @@
 import type { App } from './app';
 
 // On-screen cursor size bounds in CSS pixels, applied to the image's longer side.
-// 24 is the standard pointer size (Xcursor's default), so a desktop scaled down
-// into a small window (an embedded sidebar) keeps a normal-sized pointer.
-const MIN_CURSOR_PX = 24;
+// A phone shows the picture at about a third of desktop size, so the desktop's own
+// 24px pointer would cover three desktop pixels of UI; the floor is phone-sized.
+const MIN_CURSOR_PX = 12;
 const MAX_CURSOR_PX = 128;
 
-/** Pointer shown until the server sends a cursor image of its own. */
-const FALLBACK =
+/** Windows' standard arrow (32x32, hot spot at 6,2): the pointer pad mode draws.
+ * A cursor theme's left_ptr varies per X server and reads badly once a 1280px
+ * desktop is squeezed onto a phone, so the aiming pointer is a fixed shape. */
+const WINDOWS_CURSOR =
 	'data:image/svg+xml,' +
 	encodeURIComponent(
-		'<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">' +
-			'<path d="M5 2.5l14.5 9.2-6.8 1.5L9.4 21z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linejoin="round"/>' +
+		'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
+			'<path d="M6 2v21l5.5-5 3.5 9 4-1.6-3.5-8.9 7.5-.5z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/>' +
 			'</svg>'
 	);
 
@@ -108,8 +110,10 @@ export function createCursor(app: App): Cursor {
 		hot = { x: hsx, y: hsy };
 		size = { w: cw, h: ch };
 		drawn = true;
+		// Pad mode draws the Windows arrow, not the server image: the picture's own
+		// pointer can be a bare glyph, and it changes shape mid-gesture.
 		if (vcur) {
-			vcur.src = url;
+			if (!visible) vcur.src = url;
 			vcur.style.display = visible ? 'block' : 'none';
 			place();
 		}
@@ -133,11 +137,12 @@ export function createCursor(app: App): Cursor {
 				vcur.style.display = 'none';
 				return;
 			}
-			if (!drawn) {
-				vcur.src = FALLBACK;
-				size = { w: 24, h: 24 };
-				hot = { x: 3, y: 3 };
-			}
+			// Phone-sized: 12-20 CSS px, following the picture's scale. Aiming needs
+			// precision, not a pointer as big as the desktop one.
+			const px = Math.max(12, Math.min(20, Math.round(32 * (app.view.scale || 1))));
+			vcur.src = WINDOWS_CURSOR;
+			size = { w: px, h: px };
+			hot = { x: (6 * px) / 32, y: (2 * px) / 32 };
 			vcur.style.display = 'block';
 			place();
 		},

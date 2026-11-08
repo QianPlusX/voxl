@@ -112,17 +112,15 @@ export function setupPointer(app: App, onInteract: () => void): PadCursor {
 		mode
 	);
 
+	// Touch is handled on the window (below): on a phone the picture is letterboxed,
+	// and a slide that starts in the black bars has to move the pointer too.
 	surface.addEventListener('pointermove', (e) => {
-		if (e.pointerType === 'touch') touch.move(e);
-		else move(e);
+		if (e.pointerType !== 'touch') move(e);
 	});
 	surface.addEventListener('pointerdown', (e) => {
+		if (e.pointerType === 'touch') return;
 		e.preventDefault();
 		onInteract();
-		if (e.pointerType === 'touch') {
-			touch.down(e);
-			return;
-		}
 		app.kbd.focus({ preventScroll: true });
 		move(e);
 		try {
@@ -131,19 +129,44 @@ export function setupPointer(app: App, onInteract: () => void): PadCursor {
 		send(cmd.button(BUTTONS[e.button] || 1, true));
 	});
 	surface.addEventListener('pointerup', (e) => {
+		if (e.pointerType === 'touch') return;
 		e.preventDefault();
-		if (e.pointerType === 'touch') {
-			touch.up(e);
-			return;
-		}
 		move(e);
 		send(cmd.button(BUTTONS[e.button] || 1, false));
 	});
 	surface.addEventListener('pointercancel', (e) => {
-		if (e.pointerType === 'touch') touch.cancel(e);
-		else send(cmd.releaseAll);
+		if (e.pointerType !== 'touch') send(cmd.releaseAll);
 	});
 	surface.addEventListener('contextmenu', (e) => e.preventDefault());
+
+	// A touch anywhere on the page drives the pointer, including the bars around the
+	// picture: a thumb parked off the picture still has to aim. Widgets (toolbar,
+	// text fields, dialogs) keep their own touches.
+	const OWN_TOUCH =
+		'#tools, #kbd, #status, .panel, input, textarea, button, select, a';
+	const ownsTouch = (t: EventTarget | null) => {
+		const el = t as Element | null;
+		return !!(el && el.closest && el.closest(OWN_TOUCH));
+	};
+	window.addEventListener(
+		'pointerdown',
+		(e) => {
+			if (e.pointerType !== 'touch' || ownsTouch(e.target)) return;
+			e.preventDefault();
+			onInteract();
+			touch.down(e);
+		},
+		{ passive: false }
+	);
+	window.addEventListener('pointermove', (e) => {
+		if (e.pointerType === 'touch') touch.move(e);
+	});
+	window.addEventListener('pointerup', (e) => {
+		if (e.pointerType === 'touch') touch.up(e);
+	});
+	window.addEventListener('pointercancel', (e) => {
+		if (e.pointerType === 'touch') touch.cancel(e);
+	});
 	surface.addEventListener(
 		'wheel',
 		(e) => {
