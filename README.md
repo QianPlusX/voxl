@@ -7,6 +7,43 @@ display, a Mac's screen or a Windows desktop as H.264 over a WebSocket to a smal
 client that decodes with WebCodecs, with input, clipboard, audio, microphone, file and
 folder transfer and dynamic resolution.
 
+## Changes in this fork (QianPlusX/voxl)
+
+A phone-sized build of voxl, aimed at driving a desktop from a touchscreen. Everything
+below is on top of upstream; the server protocol is unchanged.
+
+**What changed**
+
+- **Capture works without SysV shared memory.** `src/capture.rs` and `src/video.rs` fall
+  back to a plain `GetImage` when `shmget` fails, so voxl runs inside proot/containers
+  where shm is unavailable instead of dying at startup with `shmget: Function not implemented`.
+- **Touchpad pointer mode** (`web/src/client/touch.ts`, `pointer.ts`): one finger slides
+  the pointer instead of teleporting it; a tap clicks where it is, a long press
+  (550 ms) right-clicks, tap-tap-and-hold drags. Two fingers used to scroll the page;
+  they now pinch-zoom and pan the picture — zoom 1–4×, both drawn with a CSS transform
+  on the client, so the remote screen keeps its resolution and never re-lays out.
+- **Custom cursor.** The client draws a Windows-style arrow, 12–20 CSS px depending on
+  the surface size, so the pointer is visible on a phone where the system cursor is not.
+- **Touches outside the picture work.** A slide that starts in the letterbox bars around
+  the video still moves the pointer (`pointer.ts` listens on the window, not the surface),
+  which matters because the bars are easy to hit by accident.
+- **No keyboard popup on tap.** Tapping the picture no longer focuses a text field or
+  summons the soft keyboard; the toolbar floats above the keyboard when it is open.
+- **Desktop key bar.** A "Desktop key bar" at the bottom right sends Esc, Tab, Ctrl, Alt,
+  Home, End, PageUp, PageDown and the arrow keys; Ctrl and Alt latch and combine with
+  the next key, which is what makes Ctrl+C, Ctrl+V and Alt+Tab reachable without a
+  hardware keyboard.
+
+**What it feels like**
+
+- The toolbar and the picture no longer jump: zooming and panning happen entirely on the
+  client, so the video stays sharp at 4× and the remote desktop is never resized.
+- Pointing at a 16 px window button on a 1080p desktop is practical: trackpad mode moves
+  the cursor relatively, so small targets are reached by sliding rather than by aiming a
+  finger at a scaled-down pixel.
+- Pinch to read, two fingers to move around, then pinch back — at 1× the transform is
+  cleared and the picture snaps back into place.
+
 ## Quick start
 
 ```sh

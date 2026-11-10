@@ -16,6 +16,8 @@ const LONG_PRESS = 550;
  * finger lands a little off. */
 const MULTI_TAP_MS = 400;
 const MULTI_TAP_PX = 24;
+/** Two-finger pinch zooms the picture from 1x to this. */
+const MAX_ZOOM = 4;
 
 /** 'pad' moves a cursor relatively, 'direct' taps the desktop under the finger. */
 export type TouchMode = 'pad' | 'direct';
@@ -35,11 +37,33 @@ export function createTouch(app: App, hooks: Hooks, mode: () => TouchMode) {
 	const { send } = app;
 	const pts = new Map<number, { x: number; y: number }>();
 	const isPad = () => mode() === 'pad';
-	let state: 'pending' | 'drag' | 'move' | 'scroll' | 'done' | null = null;
+	let state: 'pending' | 'drag' | 'move' | 'pinch' | 'done' | null = null;
 	let start = { x: 0, y: 0 };
 	let timer: ReturnType<typeof setTimeout> | undefined;
-	let lastMid: [number, number] = [0, 0];
 	let lastTap = { x: 0, y: 0, t: -Infinity };
+	// The picture is zoomed and panned on the client: the remote screen keeps its
+	// resolution, so text stays sharp and the desktop never re-lays out.
+	let zoom = 1,
+		panX = 0,
+		panY = 0;
+	let pinch: { d: number; zoom: number; cx: number; cy: number; panX: number; panY: number } | null =
+		null;
+	const clampView = () => {
+		const lw = app.surface.offsetWidth || 1,
+			lh = app.surface.offsetHeight || 1;
+		const mx = (lw * zoom - lw) / 2,
+			my = (lh * zoom - lh) / 2;
+		panX = Math.max(-mx, Math.min(mx, panX));
+		panY = Math.max(-my, Math.min(my, panY));
+	};
+	const applyView = () => {
+		const s = app.surface;
+		s.style.transformOrigin = '50% 50%';
+		s.style.transform =
+			zoom === 1 && panX === 0 && panY === 0
+				? ''
+				: `translate(${panX}px, ${panY}px) scale(${zoom})`;
+	};
 	const mid = (): [number, number] => {
 		let x = 0,
 			y = 0;
@@ -72,8 +96,17 @@ export function createTouch(app: App, hooks: Hooks, mode: () => TouchMode) {
 		} else if (pts.size === 2) {
 			clearTimeout(timer);
 			if (state === 'drag') send(cmd.button(1, false));
-			state = 'scroll';
-			lastMid = mid();
+			const [a, b] = [...pts.values()];
+			const [cx, cy] = mid();
+			pinch = {
+				d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+				zoom,
+				cx,
+				cy,
+				panX,
+				panY,
+			};
+			state = 'pinch';
 		}
 	}
 	function move(e: PointerEvent) {
@@ -99,11 +132,16 @@ export function createTouch(app: App, hooks: Hooks, mode: () => TouchMode) {
 		}
 		if (state === 'move') hooks.relMove(dx, dy);
 		else if (state === 'drag') hooks.moveTo(p.x, p.y);
-		else if (state === 'scroll' && pts.size >= 2) {
-			const m = mid(),
-				k = hooks.deskPerPx();
-			hooks.queueScroll((lastMid[0] - m[0]) * k, (lastMid[1] - m[1]) * k);
-			lastMid = m;
+		else if (state === 'pinch' && pinch && pts.size >= 2) {
+			const [a, b] = [...pts.values()];
+			const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+			zoom = Math.max(1, Math.min(MAX_ZOOM, (pinch.zoom * d) / pinch.d));
+			const [cx, cy] = mid();
+			panX = pinch.panX + (cx - pinch.cx);
+			panY = pinch.panY + (cy - pinch.cy);
+			clampView();
+			applyView();
+			return;
 		}
 	}
 	function up(e: PointerEvent) {
@@ -129,11 +167,20 @@ export function createTouch(app: App, hooks: Hooks, mode: () => TouchMode) {
 		} else if (state === 'drag') {
 			send(cmd.button(1, false));
 			state = 'done';
-		} else if (state === 'scroll' && pts.size < 2) state = 'done';
+		} else if (state === 'pinch' && pts.size < 2) {
+			pinch = null;
+			if (zoom <= 1.01) {
+				zoom = 1;
+				panX = panY = 0;
+				applyView();
+			}
+			state = 'done';
+		}
 		if (pts.size === 0) state = null;
 	}
 	function cancel(e: PointerEvent) {
 		clearTimeout(timer);
+		pinch = null;
 		if (state === 'drag') send(cmd.button(1, false));
 		pts.delete(e.pointerId);
 		if (pts.size === 0) state = null;
