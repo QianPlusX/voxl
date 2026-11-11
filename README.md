@@ -30,18 +30,26 @@ below is on top of upstream; the server protocol is unchanged.
   are a CSS transform on the surface, so the remote screen keeps its resolution and
   never re-lays out; hit testing divides the transform back out, so a click lands on
   the pixel that is actually on screen at any zoom.
-- **The pointer follows the zoom.** The pad pointer is kept in the picture's own
-  coordinates and drawn at `1/zoom`, so zooming magnifies the desktop without
-  magnifying the arrow, and its hotspot stays on the pixel it points at.
+- **The pointer scales with the picture.** The pad pointer is drawn inside the zoomed
+  surface, so at 4x the arrow is four times as large on screen as at 1x and covers the
+  same share of the desktop it did before. Its hotspot scales with it, so the tip stays
+  on the desktop pixel it points at — zooming never leaves a phone-sized speck over a
+  magnified screen.
 - **Custom cursor.** The client draws a Windows-style arrow, 9–13 CSS px depending on
   the surface size, so the pointer is visible on a phone where the system cursor is not.
-  It keeps that on-screen size at every zoom: the arrow is scaled by `1/zoom` inside the
-  zoomed surface, so magnifying the desktop never makes the pointer grow or shrink.
-- **The pointer keeps up with the finger.** Zoomed in, the pad pointer is not held inside
-  the picture: once it reaches the edge of the screen, the rest of the finger's travel
-  pans the picture one pixel per pixel instead of the picture crawling at a fixed speed.
+- **The pointer keeps up with the finger.** A slide moves the pointer as far across the
+  desktop at 4x as it does at 1x (the screen travel is multiplied by the zoom), so aiming
+  never feels sluggish. Once the pointer reaches the edge of the screen the rest of the
+  finger's travel pans the picture one pixel per pixel.
+- **Two fingers move the picture, not the pointer.** A pan or a pinch slides the desktop
+  under a pointer that stays put on screen, which is what a laptop touchpad does; the
+  arrow never drifts off to the edge while the picture moves under it.
 - **Inertia.** A flick keeps going: one-finger and two-finger panning coast to a stop
   after the finger lifts, and the next touch catches the picture immediately.
+- **The picture comes back from the background.** A page that was hidden can lose its
+  generated video track and go black while every button still works; the client watches
+  for frames that stop arriving, asks for a keyframe, and rebuilds the tracks if that does
+  not bring them back.
 - **Touches outside the picture work.** A slide that starts in the letterbox bars around
   the video still moves the pointer (`pointer.ts` listens on the window, not the surface),
   which matters because the bars are easy to hit by accident.

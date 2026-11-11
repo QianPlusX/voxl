@@ -1,5 +1,5 @@
 // Presenting decoded frames and fitting the desktop to the window.
-import type { Stripe, StripeFrame } from '../protocol';
+import { cmd, type Stripe, type StripeFrame } from '../protocol';
 import type { App } from './app';
 
 interface StripeOut {
@@ -75,7 +75,32 @@ export function createVideo(
 		}
 	}
 
+	// A page that went to the background (or a stalled decoder) can leave the picture
+	// black while the rest of the UI keeps running: Android suspends the generated
+	// track and never resumes it. Nothing arrives to notice that, so watch the clock:
+	// ask for a keyframe when frames stop, and rebuild the tracks when that fails.
+	let lastFrame = performance.now();
+	function rebuild() {
+		for (const o of outs) {
+			o.next?.close();
+			o.next = null;
+			try {
+				o.writer.close();
+			} catch {}
+		}
+		build(stripes);
+		lastFrame = performance.now();
+	}
+	setInterval(() => {
+		if (!useVideo) return;
+		const idle = performance.now() - lastFrame;
+		if (idle < 1200) return;
+		app.send(cmd.keyframe);
+		if (idle > 4000) rebuild();
+	}, 1000);
+
 	function present(parts: StripeFrame[]) {
+		lastFrame = performance.now();
 		for (const p of parts) {
 			const o = outs[p.i];
 			if (o) write(o, p.frame);

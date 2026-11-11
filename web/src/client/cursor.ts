@@ -57,15 +57,14 @@ export function createCursor(app: App): Cursor {
 			};
 		}
 		if (!vcur || !visible) return;
-		// The pointer lives inside #surface, so the view's zoom would magnify it too.
-		// Scaling it back by 1/zoom keeps the arrow the same size and, with the hotspot
-		// divided the same way, exactly on the desktop pixel it points at.
-		const z = app.view.zoom || 1;
+		// The pointer lives inside #surface, so it grows with the picture: the arrow keeps
+		// the same size relative to the desktop, which is what makes a 4x zoom usable
+		// instead of leaving a phone-sized speck over a magnified screen. Its hotspot
+		// scales with it, so the tip still sits on the desktop pixel it points at.
 		vcur.style.width = vsize.w + 'px';
 		vcur.style.height = vsize.h + 'px';
 		vcur.style.transformOrigin = '0 0';
-		vcur.style.transform =
-			`translate(${pos.x - vhot.x / z}px, ${pos.y - vhot.y / z}px) scale(${1 / z})`;
+		vcur.style.transform = `translate(${pos.x - vhot.x}px, ${pos.y - vhot.y}px)`;
 	}
 
 	function apply() {

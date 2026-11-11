@@ -73,8 +73,7 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 	// keeps it on the same desktop pixel instead of sliding away from it.
 	let pad = initialPad();
 	let padX = 0,
-		padY = 0,
-		padReady = false;
+		padY = 0;
 	const moveFns: ((x: number, y: number) => void)[] = [];
 	const modeFns: ((pad: boolean) => void)[] = [];
 	/** The pad pointer's desktop pixel position, rebuilt from its layout position. */
@@ -117,7 +116,6 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 		// a bigger desktop, and the pointer may sit on any pixel the window shows.
 		padX = lx;
 		padY = ly;
-		padReady = true;
 		sendPadMove();
 		for (const fn of moveFns) fn(padX, padY);
 	}
@@ -125,7 +123,11 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 		const from = screen.ready
 			? screen
 			: { x: (window.innerWidth || 1) / 2, y: (window.innerHeight || 1) / 2, ready: true };
-		padTo(from.x + dx, from.y + dy);
+		// A finger's pixel moves the pointer as far across the desktop at 4x as it did at
+		// 1x: the screen travel is multiplied by the zoom, so aiming keeps the speed it
+		// has when the picture is not magnified. Past the screen's edge the rest pans.
+		const z = view.zoom();
+		padTo(from.x + dx * z, from.y + dy * z);
 	}
 	function click(button: number) {
 		send(cmd.button(button, true));
@@ -211,14 +213,15 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 		{ passive: false }
 	);
 
-	// Zooming and panning move the picture, not the pad pointer's desktop pixel: redraw
-	// it where it now sits on screen.
+	// Trackpad semantics: the picture slides under the pointer, which stays where it is
+	// on screen. Panning and zooming therefore move the desktop pixel it points at, not
+	// its place on the phone, and the arrow never drifts away from the finger.
 	view.onChange(() => {
-		if (!padReady || !pad) return;
-		// Zooming moves the picture under the pointer: re-anchor it on screen, then
-		// redraw it where it now points.
-		const [cx, cy] = view.toClient(padX, padY);
-		screen = { x: cx, y: cy, ready: true };
+		if (!pad || !screen.ready) return;
+		const [lx, ly] = view.toLayout(screen.x, screen.y);
+		padX = lx;
+		padY = ly;
+		sendPadMove();
 		for (const fn of moveFns) fn(padX, padY);
 	});
 
