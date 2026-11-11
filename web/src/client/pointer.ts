@@ -95,36 +95,38 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 			send(s);
 		}
 	}
-	function relMove(dx: number, dy: number) {
-		const lw = surface.offsetWidth || 1,
-			lh = surface.offsetHeight || 1;
-		if (!padReady) {
-			padX = lw / 2;
-			padY = lh / 2;
-			padReady = true;
-		}
-		// A finger moving dx on screen covers dx / zoom layout pixels: zoomed in, the
-		// pointer moves slower, which is what makes a 20px button reachable.
-		const z = view.zoom();
-		padX = Math.max(0, Math.min(lw - 1, padX + dx / z));
-		padY = Math.max(0, Math.min(lh - 1, padY + dy / z));
+	/** Put the pointer at a client (CSS pixel) point. Zoomed in it is not held inside
+	 * the picture: once it reaches the edge of the screen the rest of the finger's
+	 * travel pans the picture by exactly that much, so the pointer keeps up with the
+	 * finger instead of the picture crawling at a fixed speed. */
+	/** The pointer's place on screen. Kept here rather than recomputed from its layout
+	 * position: a pan changes the transform, and going round the round trip would let a
+	 * few pixels slip on every frame. */
+	let screen = { x: 0, y: 0, ready: false };
+	function padTo(clientX: number, clientY: number) {
+		const w = window.innerWidth || 1,
+			h = window.innerHeight || 1;
+		const cx = Math.max(0, Math.min(w - 1, clientX)),
+			cy = Math.max(0, Math.min(h - 1, clientY));
+		// At the edge of the screen the rest of the finger's travel moves the picture,
+		// one pixel of finger to one pixel of picture, so aiming never feels capped.
+		if (cx !== clientX || cy !== clientY) view.panBy(cx - clientX, cy - clientY);
+		screen = { x: cx, y: cy, ready: true };
+		const [lx, ly] = view.toLayout(cx, cy);
+		// Not clamped to the picture: zoomed in, the visible part of it is a window into
+		// a bigger desktop, and the pointer may sit on any pixel the window shows.
+		padX = lx;
+		padY = ly;
+		padReady = true;
 		sendPadMove();
 		for (const fn of moveFns) fn(padX, padY);
-		edgePan();
 	}
-	/** Zoomed in, walking the pointer to the edge of the screen pans the picture, so a
-	 * control just off screen can be reached without lifting the finger. The band is
-	 * measured on screen: zoomed in, the picture's own edges are far outside it. */
-	function edgePan() {
-		if (view.zoom() <= 1.01) return;
-		const [cx, cy] = view.toClient(padX, padY);
-		const band = 0.12,
-			fx = edgeFactor(cx / (window.innerWidth || 1), band),
-			fy = edgeFactor(cy / (window.innerHeight || 1), band);
-		if (fx || fy) view.panBy(-fx * 14, -fy * 14);
+	function relMove(dx: number, dy: number) {
+		const from = screen.ready
+			? screen
+			: { x: (window.innerWidth || 1) / 2, y: (window.innerHeight || 1) / 2, ready: true };
+		padTo(from.x + dx, from.y + dy);
 	}
-	const edgeFactor = (t: number, band: number) =>
-		t < band ? -(1 - t / band) : t > 1 - band ? 1 - (1 - t) / band : 0;
 	function click(button: number) {
 		send(cmd.button(button, true));
 		send(cmd.button(button, false));
@@ -213,6 +215,10 @@ export function setupPointer(app: App, view: View, onInteract: () => void): PadC
 	// it where it now sits on screen.
 	view.onChange(() => {
 		if (!padReady || !pad) return;
+		// Zooming moves the picture under the pointer: re-anchor it on screen, then
+		// redraw it where it now points.
+		const [cx, cy] = view.toClient(padX, padY);
+		screen = { x: cx, y: cy, ready: true };
 		for (const fn of moveFns) fn(padX, padY);
 	});
 

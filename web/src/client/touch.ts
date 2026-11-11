@@ -30,7 +30,8 @@ export type TouchMode = 'pad' | 'direct';
 interface Hooks {
 	/** Move the remote pointer to a client (CSS pixel) position. */
 	moveTo(x: number, y: number): void;
-	/** Move the remote pointer by this many client (CSS) pixels, clamped to the surface. */
+	/** Move the remote pointer by this many client (CSS) pixels; at the screen's edge
+	 * the rest of the travel pans the picture. */
 	relMove(dx: number, dy: number): void;
 	/** Press and release a button where the pointer already is. */
 	click(button: number): void;
@@ -49,7 +50,28 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 	let lastTap = { x: 0, y: 0, t: -Infinity };
 	// Two fingers: distance and midpoint of the previous frame, so each frame's
 	// zoom/pan is relative to the last one.
-	let pinch: { d: number; cx: number; cy: number; moved: boolean; t: number } | null = null;
+	let pinch: {
+		d: number;
+		cx: number;
+		cy: number;
+		moved: boolean;
+		t: number;
+		lt: number;
+		vx: number;
+		vy: number;
+	} | null = null;
+	/** How fast the finger was moving when it left, for the coast after a flick. */
+	let vel = { x: 0, y: 0, t: 0 };
+	function sample(x: number, y: number, from: { x: number; y: number }) {
+		const now = performance.now();
+		const dt = Math.max(8, now - vel.t) / 1000;
+		const k = 0.4;
+		return {
+			x: (1 - k) * vel.x + k * ((x - from.x) / dt),
+			y: (1 - k) * vel.y + k * ((y - from.y) / dt),
+			t: now,
+		};
+	}
 	/** Two fingers report one pointermove each; applying the gesture per event makes
 	 * the midpoint jump between them and the picture drifts. Fold a frame's moves into
 	 * one update. */
@@ -74,6 +96,8 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 	};
 
 	function down(e: PointerEvent) {
+		// A new touch always wins over the picture still coasting from the last flick.
+		view.stopFling();
 		try {
 			app.surface.setPointerCapture(e.pointerId);
 		} catch {}
@@ -102,7 +126,16 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 			if (state === 'drag') send(cmd.button(1, false));
 			if (state === 'armed') state = 'pending';
 			const [cx, cy] = mid();
-			pinch = { d: dist(), cx, cy, moved: false, t: performance.now() };
+			pinch = {
+				d: dist(),
+				cx,
+				cy,
+				moved: false,
+				t: performance.now(),
+				lt: performance.now(),
+				vx: 0,
+				vy: 0,
+			};
 			state = 'pinch';
 		}
 	}
@@ -127,6 +160,7 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 			// mis-aimed tap.
 			state = 'pan';
 			last = { x: e.clientX, y: e.clientY };
+			vel = { x: 0, y: 0, t: performance.now() };
 			return;
 		}
 		if (state === 'armed') {
@@ -136,6 +170,7 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 			send(cmd.button(1, true));
 		}
 		if (state === 'pan') {
+			vel = sample(e.clientX, e.clientY, last);
 			view.panBy(e.clientX - last.x, e.clientY - last.y);
 			last = { x: e.clientX, y: e.clientY };
 		} else if (state === 'move') hooks.relMove(dx, dy);
@@ -151,13 +186,17 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 		if (state !== 'pinch' || !pinch || pts.size < 2) return;
 		const d = dist();
 		const [cx, cy] = mid();
+		const now = performance.now();
+		const dt = Math.max(8, now - pinch.lt) / 1000;
+		pinch.vx = (cx - pinch.cx) / dt;
+		pinch.vy = (cy - pinch.cy) / dt;
 		if (Math.hypot(cx - pinch.cx, cy - pinch.cy) > PINCH_SLOP || Math.abs(d - pinch.d) > PINCH_SLOP)
 			pinch.moved = true;
 		// Two fingers moving together pan; spreading them zooms around their midpoint,
 		// so the desktop pixel between the fingers stays put.
 		view.panBy(cx - pinch.cx, cy - pinch.cy);
 		if (Math.abs(d - pinch.d) > 0.5) view.zoomAt(d / pinch.d, cx, cy);
-		pinch = { ...pinch, d, cx, cy };
+		pinch = { ...pinch, d, cx, cy, lt: now };
 	}
 
 	function up(e: PointerEvent) {
@@ -185,6 +224,10 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 			if (!isPad()) hooks.moveTo(start.x, start.y);
 			hooks.click(3);
 			state = 'done';
+		} else if (state === 'pan') {
+			// A flick: the picture coasts on at the speed the finger was moving.
+			view.fling(vel.x, vel.y);
+			state = 'done';
 		} else if (state === 'drag') {
 			send(cmd.button(1, false));
 			state = 'done';
@@ -202,6 +245,9 @@ export function createTouch(app: App, view: View, hooks: Hooks, mode: () => Touc
 						hooks.moveTo(pinch.cx, pinch.cy);
 						hooks.click(3);
 					}
+				} else if (pinch.moved) {
+					// A flick with two fingers coasts too, a little slower than one.
+					view.fling(pinch.vx * 0.55, pinch.vy * 0.55);
 				}
 				pinch = null;
 				state = 'done';

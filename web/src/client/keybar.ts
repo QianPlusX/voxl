@@ -96,10 +96,9 @@ export function setupKeybar(kb: {
 	}
 	document.body.appendChild(bar);
 
-	// Shown on touch devices, where the key bar is the only way to send these keys.
-	const touch = matchMedia('(pointer: coarse)').matches;
-	if (touch) bar.classList.add('show');
-	let hidden = false;
+	// Hidden until asked for: on a phone it covers a fifth of the picture, and most
+	// of the time the soft keyboard is enough.
+	let hidden = true;
 	const toggle = document.createElement('button');
 	toggle.id = 'keybar-toggle';
 	toggle.type = 'button';
@@ -113,10 +112,7 @@ export function setupKeybar(kb: {
 		bar.classList.toggle('show', !hidden);
 		toggle.classList.toggle('on', !hidden);
 	});
-	if (touch) {
-		toggle.classList.add('on');
-		document.body.appendChild(toggle);
-	}
+	document.body.appendChild(toggle);
 
 	return { bar, toggle };
 }

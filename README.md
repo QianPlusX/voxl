@@ -33,8 +33,15 @@ below is on top of upstream; the server protocol is unchanged.
 - **The pointer follows the zoom.** The pad pointer is kept in the picture's own
   coordinates and drawn at `1/zoom`, so zooming magnifies the desktop without
   magnifying the arrow, and its hotspot stays on the pixel it points at.
-- **Custom cursor.** The client draws a Windows-style arrow, 12–20 CSS px depending on
+- **Custom cursor.** The client draws a Windows-style arrow, 9–13 CSS px depending on
   the surface size, so the pointer is visible on a phone where the system cursor is not.
+  It keeps that on-screen size at every zoom: the arrow is scaled by `1/zoom` inside the
+  zoomed surface, so magnifying the desktop never makes the pointer grow or shrink.
+- **The pointer keeps up with the finger.** Zoomed in, the pad pointer is not held inside
+  the picture: once it reaches the edge of the screen, the rest of the finger's travel
+  pans the picture one pixel per pixel instead of the picture crawling at a fixed speed.
+- **Inertia.** A flick keeps going: one-finger and two-finger panning coast to a stop
+  after the finger lifts, and the next touch catches the picture immediately.
 - **Touches outside the picture work.** A slide that starts in the letterbox bars around
   the video still moves the pointer (`pointer.ts` listens on the window, not the surface),
   which matters because the bars are easy to hit by accident.
@@ -45,8 +52,8 @@ below is on top of upstream; the server protocol is unchanged.
 - **Desktop key bar.** A strip above the toolbar sends Esc, Tab, Home, End, PageUp,
   PageDown and the arrow keys; Ctrl and Alt latch for one key and combine with it,
   which is what makes Ctrl+C, Ctrl+V and Alt+Tab reachable without a hardware keyboard.
-  It is shown on touch devices and folds away with the ⌨ button, and it lifts above the
-  soft keyboard when that is open.
+  It starts hidden and folds out with the ⌨ button, and it lifts above the soft keyboard
+  when that is open.
 
 **What it feels like**
 

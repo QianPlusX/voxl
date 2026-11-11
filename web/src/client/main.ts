@@ -103,6 +103,9 @@ function main() {
 	setupToolbar(app, video.layout, pad);
 	// Pad mode has no real pointer to follow, so it draws one at its own position.
 	pad.onMove((x, y) => cursor.setPos(x, y));
+	// The pointer lives inside the zoomed surface: on every zoom the picture scales it
+	// back by 1/zoom so the arrow keeps the same on-screen size and stays on target.
+	view.onChange(() => cursor.refresh());
 	pad.onMode((on) => cursor.setVisible(on));
 	cursor.setVisible(pad.enabled());
 	const files = createFiles(app);

@@ -16,6 +16,10 @@ export interface View {
 	zoomAt(factor: number, clientX: number, clientY: number): void;
 	/** Move the picture by a client-pixel delta (a finger's movement). */
 	panBy(dx: number, dy: number): void;
+	/** Coast on after a flick: velocity in client pixels per second. */
+	fling(vx: number, vy: number): void;
+	/** Drop any running fling; a new touch always takes over. */
+	stopFling(): void;
 	/** Back to 1x with no pan. */
 	reset(): void;
 	/** Client point -> desktop pixel, clamped to the desktop. */
@@ -33,6 +37,7 @@ export function createView(app: App): View {
 	let zoom = 1,
 		tx = 0,
 		ty = 0;
+	let flingId = 0;
 	const fns: (() => void)[] = [];
 	const surface = app.surface;
 
@@ -44,6 +49,10 @@ export function createView(app: App): View {
 	}
 	function layoutSize(): [number, number] {
 		return [surface.offsetWidth || 1, surface.offsetHeight || 1];
+	}
+	function stopFling() {
+		if (flingId) cancelAnimationFrame(flingId);
+		flingId = 0;
 	}
 	/** Keep the picture covering the surface: no empty band on any side. */
 	function clamp() {
@@ -72,6 +81,7 @@ export function createView(app: App): View {
 	return {
 		zoom: () => zoom,
 		zoomAt(factor: number, clientX: number, clientY: number) {
+			stopFling();
 			const next = Math.max(1, Math.min(MAX_ZOOM, zoom * factor));
 			if (next === zoom) return;
 			const [ox, oy] = origin();
@@ -84,12 +94,42 @@ export function createView(app: App): View {
 			apply();
 		},
 		panBy(dx: number, dy: number) {
+			stopFling();
 			if (zoom === 1) return;
 			tx += dx;
 			ty += dy;
 			apply();
 		},
+		fling(vx: number, vy: number) {
+			stopFling();
+			if (zoom <= 1.001 || Math.hypot(vx, vy) < 120) return;
+			let lx = vx,
+				ly = vy,
+				prev = performance.now();
+			const step = (now: number) => {
+				const dt = Math.min(64, now - prev) / 1000;
+				prev = now;
+				const bx = tx,
+					by = ty;
+				tx += lx * dt;
+				ty += ly * dt;
+				apply();
+				// clamp() already stopped us at the picture's edge: nothing moved.
+				const moved = Math.abs(tx - bx) + Math.abs(ty - by);
+				const k = Math.exp(-dt / 0.3);
+				lx *= k;
+				ly *= k;
+				if (moved < 0.5 || Math.hypot(lx, ly) < 60) {
+					flingId = 0;
+					return;
+				}
+				flingId = requestAnimationFrame(step);
+			};
+			flingId = requestAnimationFrame(step);
+		},
+		stopFling,
 		reset() {
+			stopFling();
 			zoom = 1;
 			tx = ty = 0;
 			apply();

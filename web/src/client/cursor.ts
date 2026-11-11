@@ -10,7 +10,7 @@ import type { App } from './app';
 // On-screen cursor size bounds in CSS pixels, applied to the image's longer side.
 // A phone shows the picture at about a third of desktop size, so the desktop's own
 // 24px pointer would cover three desktop pixels of UI; the floor is phone-sized.
-const MIN_CURSOR_PX = 12;
+const MIN_CURSOR_PX = 9;
 const MAX_CURSOR_PX = 128;
 
 /** Windows' standard arrow (32x32, hot spot at 6,2): the pointer pad mode draws.
@@ -30,6 +30,8 @@ export interface Cursor {
 	/** Draw the pointer at this surface position (CSS pixels, from the top left). */
 	setPos(x: number, y: number): void;
 	setVisible(on: boolean): void;
+	/** Redraw at the current zoom, e.g. after the picture was scaled. */
+	refresh(): void;
 }
 
 export function createCursor(app: App): Cursor {
@@ -135,6 +137,7 @@ export function createCursor(app: App): Cursor {
 			centered = false;
 			place();
 		},
+		refresh: place,
 		setVisible(on: boolean) {
 			visible = on;
 			if (!vcur) return;
@@ -142,9 +145,9 @@ export function createCursor(app: App): Cursor {
 				vcur.style.display = 'none';
 				return;
 			}
-			// Phone-sized: 12-20 CSS px, following the picture's scale. Aiming needs
-			// precision, not a pointer as big as the desktop one.
-			const px = Math.max(12, Math.min(20, Math.round(32 * (app.view.scale || 1))));
+			// Phone-sized: 10-16 CSS px, following how big the picture is on this screen.
+			// Aiming needs precision, not a pointer as big as the desktop one.
+			const px = Math.max(9, Math.min(13, Math.round(22 * (app.view.scale || 1))));
 			vcur.src = WINDOWS_CURSOR;
 			vsize = { w: px, h: px };
 			vhot = { x: (6 * px) / 32, y: (2 * px) / 32 };

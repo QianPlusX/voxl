@@ -218,8 +218,11 @@ export function setupKeyboard(
 	// A mouse pointer has no way to raise a keyboard by itself, so keep the hidden
 	// textarea focused. A touch device does the opposite: focusing it pops the soft
 	// keyboard over the picture, so only the keyboard button does that.
-	const touch = matchMedia('(pointer: coarse)').matches;
-	if (!touch) {
+	// Ask for a fine pointer, not for the absence of a coarse one: Android WebView
+	// reports "(pointer: coarse)" inconsistently, and guessing wrong pops the soft
+	// keyboard over the picture on the first tap.
+	const fine = matchMedia('(hover: hover) and (pointer: fine)').matches;
+	if (fine) {
 		surface.addEventListener('focus', () => kbd.focus({ preventScroll: true }));
 		if (!app.inIframe) kbd.focus({ preventScroll: true });
 	}
