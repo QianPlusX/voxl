@@ -20,8 +20,8 @@ export interface App {
 	inIframe: boolean;
 	/** Desktop size in pixels; 0 until the server says hello. */
 	desk: { w: number; h: number };
-	/** On-screen CSS pixels per desktop pixel. */
-	view: { scale: number };
+	/** On-screen CSS pixels per desktop pixel (1x, before the view's zoom). */
+	view: { scale: number; zoom: number };
 }
 
 export function el<T extends HTMLElement = HTMLElement>(id: string): T {

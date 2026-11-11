@@ -8,11 +8,13 @@ import { createAudio } from './audio';
 import { createClipboard } from './clipboard';
 import { createCursor } from './cursor';
 import { createFiles } from './files';
+import { setupKeybar } from './keybar';
 import { setupKeyboard } from './keyboard';
 import { createMic } from './mic';
 import { setupPointer } from './pointer';
 import { createResize } from './resize';
 import { setupToolbar } from './toolbar';
+import { createView } from './view';
 import { createVideo } from './video';
 
 /**
@@ -77,7 +79,7 @@ function main() {
 		readOnly: false,
 		inIframe: window !== window.top,
 		desk: { w: 0, h: 0 },
-		view: { scale: 1 },
+		view: { scale: 1, zoom: 1 },
 	};
 
 	const cursor = createCursor(app);
@@ -92,8 +94,12 @@ function main() {
 		audio.start();
 		clipboard.flush();
 	};
-	const pad = setupPointer(app, onInteract);
-	setupKeyboard(app, clipboard, onInteract);
+	// Zoom/pan live on the client: the remote screen keeps its resolution and the
+	// picture is transformed, so a fingertip pinch cannot re-lay out the desktop.
+	const view = createView(app);
+	const pad = setupPointer(app, view, onInteract);
+	const kb = setupKeyboard(app, clipboard, onInteract);
+	setupKeybar(kb);
 	setupToolbar(app, video.layout, pad);
 	// Pad mode has no real pointer to follow, so it draws one at its own position.
 	pad.onMove((x, y) => cursor.setPos(x, y));
@@ -125,6 +131,7 @@ function main() {
 	});
 	window.addEventListener('resize', () => {
 		video.layout();
+		view.apply();
 		updateVisibility();
 	});
 	updateVisibility();

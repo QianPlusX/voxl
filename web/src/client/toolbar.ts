@@ -30,6 +30,8 @@ export function setupToolbar(
 			const fix = () => {
 				const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
 				tools.style.bottom = 12 + overlap + 'px';
+				// The key bar and its toggle sit above the same keyboard.
+				document.documentElement.style.setProperty('--kb', overlap + 'px');
 			};
 			vv.addEventListener('resize', fix);
 			vv.addEventListener('scroll', fix);
@@ -68,8 +70,12 @@ export function setupToolbar(
 		if (document.activeElement === kbd && kbd.dataset.soft) {
 			kbd.blur();
 			delete kbd.dataset.soft;
+			kbd.setAttribute('inputmode', 'none');
 		} else {
+			// inputmode stays "none" until this button is pressed, so tapping or
+			// clicking the picture never pops the soft keyboard on its own.
 			kbd.dataset.soft = '1';
+			kbd.setAttribute('inputmode', 'text');
 			kbd.focus({ preventScroll: true });
 		}
 	});

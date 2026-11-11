@@ -19,20 +19,34 @@ below is on top of upstream; the server protocol is unchanged.
   where shm is unavailable instead of dying at startup with `shmget: Function not implemented`.
 - **Touchpad pointer mode** (`web/src/client/touch.ts`, `pointer.ts`): one finger slides
   the pointer instead of teleporting it; a tap clicks where it is, a long press
-  (550 ms) right-clicks, tap-tap-and-hold drags. Two fingers used to scroll the page;
-  they now pinch-zoom and pan the picture — zoom 1–4×, both drawn with a CSS transform
-  on the client, so the remote screen keeps its resolution and never re-lays out.
+  (550 ms) right-clicks. Two fingers moving together pan the picture, spreading them
+  pinches it — the desktop pixel between the fingers stays under the fingers while
+  zooming, up to 4×. A two-finger tap is a right click. Zoomed in, walking the pointer
+  to the edge of the screen pans the picture with it, so a control just outside the
+  visible area is reachable without lifting the finger.
+- **Direct touch mode** (`touch.ts`, `view.ts`): one finger drags the picture itself, a
+  tap clicks the desktop point under it, holding and then dragging drags the desktop,
+  a long press without moving right-clicks, a two-finger tap right-clicks. Zoom and pan
+  are a CSS transform on the surface, so the remote screen keeps its resolution and
+  never re-lays out; hit testing divides the transform back out, so a click lands on
+  the pixel that is actually on screen at any zoom.
+- **The pointer follows the zoom.** The pad pointer is kept in the picture's own
+  coordinates and drawn at `1/zoom`, so zooming magnifies the desktop without
+  magnifying the arrow, and its hotspot stays on the pixel it points at.
 - **Custom cursor.** The client draws a Windows-style arrow, 12–20 CSS px depending on
   the surface size, so the pointer is visible on a phone where the system cursor is not.
 - **Touches outside the picture work.** A slide that starts in the letterbox bars around
   the video still moves the pointer (`pointer.ts` listens on the window, not the surface),
   which matters because the bars are easy to hit by accident.
-- **No keyboard popup on tap.** Tapping the picture no longer focuses a text field or
-  summons the soft keyboard; the toolbar floats above the keyboard when it is open.
-- **Desktop key bar.** A "Desktop key bar" at the bottom right sends Esc, Tab, Ctrl, Alt,
-  Home, End, PageUp, PageDown and the arrow keys; Ctrl and Alt latch and combine with
-  the next key, which is what makes Ctrl+C, Ctrl+V and Alt+Tab reachable without a
-  hardware keyboard.
+- **No keyboard popup on tap.** Tapping or clicking the picture no longer focuses a text
+  field or summons the soft keyboard: the hidden input starts with `inputmode="none"`
+  and only the toolbar's keyboard button turns it on. The toolbar and the key bar float
+  above the keyboard when it is open.
+- **Desktop key bar.** A strip above the toolbar sends Esc, Tab, Home, End, PageUp,
+  PageDown and the arrow keys; Ctrl and Alt latch for one key and combine with it,
+  which is what makes Ctrl+C, Ctrl+V and Alt+Tab reachable without a hardware keyboard.
+  It is shown on touch devices and folds away with the ⌨ button, and it lifts above the
+  soft keyboard when that is open.
 
 **What it feels like**
 
@@ -43,6 +57,8 @@ below is on top of upstream; the server protocol is unchanged.
   finger at a scaled-down pixel.
 - Pinch to read, two fingers to move around, then pinch back — at 1× the transform is
   cleared and the picture snaps back into place.
+- A right click is two fingers tapping together, in either mode, the way a laptop
+  touchpad does it.
 
 ## Quick start
 

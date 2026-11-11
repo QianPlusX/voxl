@@ -166,6 +166,70 @@
 				opacity: 1;
 				pointer-events: auto;
 			}
+			/* The desktop key bar: the keys a phone keyboard cannot send, in a strip
+			   above the toolbar. --kb lifts the strip above the soft keyboard. */
+			#keybar {
+				position: fixed;
+				left: 8px;
+				right: 8px;
+				bottom: calc(64px + var(--kb, 0px));
+				display: none;
+				flex-direction: column;
+				gap: 6px;
+				padding: 6px;
+				z-index: 3;
+				border-radius: 12px;
+				background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
+				border: 1.5px solid var(--border-default);
+				backdrop-filter: blur(30px);
+				-webkit-backdrop-filter: blur(30px);
+			}
+			#keybar.show {
+				display: flex;
+			}
+			#keybar .row {
+				display: flex;
+				gap: 6px;
+			}
+			#keybar button {
+				flex: 1 1 0;
+				min-width: 0;
+				height: 34px;
+				border: 0;
+				border-radius: 8px;
+				background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+				color: var(--text-strong);
+				font: 600 12px var(--font);
+				cursor: pointer;
+				transition: background-color 0.15s ease-out;
+			}
+			#keybar button:active {
+				background: var(--state-pressed);
+			}
+			#keybar button.on {
+				background: var(--accent);
+				color: #fff;
+			}
+			#keybar-toggle {
+				position: fixed;
+				left: 8px;
+				bottom: calc(12px + var(--kb, 0px));
+				width: 40px;
+				height: 40px;
+				border: 1.5px solid var(--border-default);
+				border-radius: 12px;
+				background: color-mix(in srgb, var(--surface-raised) 90%, transparent);
+				color: var(--text-strong);
+				font: 600 15px var(--font);
+				z-index: 3;
+				cursor: pointer;
+				backdrop-filter: blur(30px);
+				-webkit-backdrop-filter: blur(30px);
+			}
+			#keybar-toggle.on {
+				color: #fff;
+				background: color-mix(in srgb, var(--accent) 70%, transparent);
+			}
 			#tools.touch {
 				top: auto;
 				bottom: 12px;
@@ -623,6 +687,7 @@
 		</div>
 		<textarea
 			id="kbd"
+			inputmode="none"
 			autocomplete="off"
 			autocorrect="off"
 			autocapitalize="off"

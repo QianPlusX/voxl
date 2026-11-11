@@ -41,20 +41,29 @@ export function createCursor(app: App): Cursor {
 	// Until the first pointer movement the cursor sits in the middle of the surface,
 	// whatever its size: at load time the window may not be laid out yet.
 	let centered = true;
-	// Hotspot and size of the last applied image, in CSS pixels.
-	let hot = { x: 0, y: 0 };
-	let size = { w: 0, h: 0 };
-	let drawn = false;
+	// The pad pointer's own size and hotspot, in CSS pixels: it draws the Windows
+	// arrow, not the server's cursor image, so the two must not overwrite each other.
+	let vhot = { x: 0, y: 0 };
+	let vsize = { w: 0, h: 0 };
 
 	function place() {
 		if (centered) {
-			const r = app.surface.getBoundingClientRect();
-			pos = { x: r.width / 2, y: r.height / 2 };
+			// Surface layout pixels, not the on-screen box: the picture may be zoomed.
+			pos = {
+				x: (app.surface.offsetWidth || 1) / 2,
+				y: (app.surface.offsetHeight || 1) / 2,
+			};
 		}
 		if (!vcur || !visible) return;
-		vcur.style.width = size.w + 'px';
-		vcur.style.height = size.h + 'px';
-		vcur.style.transform = `translate(${Math.round(pos.x - hot.x)}px, ${Math.round(pos.y - hot.y)}px)`;
+		// The pointer lives inside #surface, so the view's zoom would magnify it too.
+		// Scaling it back by 1/zoom keeps the arrow the same size and, with the hotspot
+		// divided the same way, exactly on the desktop pixel it points at.
+		const z = app.view.zoom || 1;
+		vcur.style.width = vsize.w + 'px';
+		vcur.style.height = vsize.h + 'px';
+		vcur.style.transformOrigin = '0 0';
+		vcur.style.transform =
+			`translate(${pos.x - vhot.x / z}px, ${pos.y - vhot.y / z}px) scale(${1 / z})`;
 	}
 
 	function apply() {
@@ -106,10 +115,6 @@ export function createCursor(app: App): Cursor {
 				: `url(${url}) ${hsx} ${hsy}, default`;
 		if (dpr > 1 && !app.surface.style.cursor)
 			app.surface.style.cursor = `url(${url}) ${hsx} ${hsy}, default`;
-		// The same image again, at the pad pointer.
-		hot = { x: hsx, y: hsy };
-		size = { w: cw, h: ch };
-		drawn = true;
 		// Pad mode draws the Windows arrow, not the server image: the picture's own
 		// pointer can be a bare glyph, and it changes shape mid-gesture.
 		if (vcur) {
@@ -141,8 +146,8 @@ export function createCursor(app: App): Cursor {
 			// precision, not a pointer as big as the desktop one.
 			const px = Math.max(12, Math.min(20, Math.round(32 * (app.view.scale || 1))));
 			vcur.src = WINDOWS_CURSOR;
-			size = { w: px, h: px };
-			hot = { x: (6 * px) / 32, y: (2 * px) / 32 };
+			vsize = { w: px, h: px };
+			vhot = { x: (6 * px) / 32, y: (2 * px) / 32 };
 			vcur.style.display = 'block';
 			place();
 		},

@@ -215,8 +215,20 @@ export function setupKeyboard(
 		kbd.value = '';
 	});
 	window.addEventListener('blur', releaseAll);
-	surface.addEventListener('focus', () => kbd.focus({ preventScroll: true }));
-	if (!app.inIframe) kbd.focus({ preventScroll: true });
+	// A mouse pointer has no way to raise a keyboard by itself, so keep the hidden
+	// textarea focused. A touch device does the opposite: focusing it pops the soft
+	// keyboard over the picture, so only the keyboard button does that.
+	const touch = matchMedia('(pointer: coarse)').matches;
+	if (!touch) {
+		surface.addEventListener('focus', () => kbd.focus({ preventScroll: true }));
+		if (!app.inIframe) kbd.focus({ preventScroll: true });
+	}
 
-	return { releaseAll };
+	return {
+		releaseAll,
+		/** Tap a keysym: the key bar's Esc, Tab, arrows and friends. */
+		tap,
+		/** Hold or release a modifier keysym, for the key bar's Ctrl/Alt. */
+		key: (ks: number, down_: boolean) => send(cmd.key(ks, down_)),
+	};
 }
